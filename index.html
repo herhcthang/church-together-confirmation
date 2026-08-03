@@ -7,7 +7,7 @@
     <meta name="referrer" content="no-referrer" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://ugywfnycmklabxunuinl.supabase.co; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     />
     <title>Church Together · Email Confirmation</title>
     <style>
@@ -120,6 +120,75 @@
         line-height: 1.55;
       }
 
+      .password-form {
+        margin-top: 24px;
+        text-align: left;
+      }
+
+      .password-form[hidden],
+      .hidden {
+        display: none;
+      }
+
+      label {
+        display: block;
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 750;
+      }
+
+      input {
+        width: 100%;
+        min-height: 52px;
+        margin: 0 0 16px;
+        padding: 13px 15px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        outline: none;
+        background: var(--surface);
+        color: var(--charcoal);
+        font: inherit;
+        font-size: 16px;
+      }
+
+      input:focus {
+        border-color: var(--sage-deep);
+        box-shadow: 0 0 0 3px rgb(63 98 72 / 13%);
+      }
+
+      .form-help {
+        margin: -4px 0 18px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      button {
+        width: 100%;
+        min-height: 54px;
+        border: 0;
+        border-radius: 16px;
+        background: var(--sage-deep);
+        color: white;
+        cursor: pointer;
+        font: inherit;
+        font-size: 16px;
+        font-weight: 800;
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.65;
+      }
+
+      .form-status {
+        margin-top: 14px;
+        color: var(--error);
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.45;
+      }
+
       .privacy {
         margin: 26px 0 0;
         padding-top: 20px;
@@ -151,9 +220,34 @@
         Sign in with the email and password you created. If your church has not
         added you yet, the app will ask for an invitation code.
       </p>
+      <form class="password-form" id="password-form" hidden>
+        <label for="password">Create password</label>
+        <input
+          autocomplete="new-password"
+          id="password"
+          minlength="12"
+          name="password"
+          required
+          type="password"
+        />
+        <label for="confirm-password">Confirm password</label>
+        <input
+          autocomplete="new-password"
+          id="confirm-password"
+          minlength="12"
+          name="confirm-password"
+          required
+          type="password"
+        />
+        <p class="form-help">
+          Use at least 12 characters with uppercase, lowercase, and a number.
+        </p>
+        <button id="save-password" type="submit">Save password</button>
+        <div class="form-status" id="form-status" role="alert"></div>
+      </form>
       <p class="privacy">
-        This page does not collect a password, church information, or payment
-        details.
+        Passwords are sent directly to Church Together's secure account
+        service. This page never stores church information or payment details.
       </p>
     </main>
     <script>
@@ -170,11 +264,23 @@
           query.has("token") ||
           hash.has("access_token") ||
           hash.has("refresh_token");
+        const flowType = hash.get("type") || query.get("type");
+        const accessToken = hash.get("access_token");
+        const needsPassword =
+          Boolean(accessToken) &&
+          (flowType === "invite" || flowType === "recovery");
 
         const title = document.getElementById("title");
         const message = document.getElementById("message");
         const status = document.getElementById("status");
         const next = document.getElementById("next");
+        const passwordForm = document.getElementById("password-form");
+        const password = document.getElementById("password");
+        const confirmPassword = document.getElementById("confirm-password");
+        const savePassword = document.getElementById("save-password");
+        const formStatus = document.getElementById("form-status");
+
+        history.replaceState(null, "", window.location.pathname);
 
         if (error) {
           title.textContent = "We could not confirm this link";
@@ -185,6 +291,90 @@
           status.classList.add("error");
           next.textContent =
             "For your protection, this page does not display technical account details.";
+        } else if (needsPassword) {
+          title.textContent = "Create your password";
+          message.textContent =
+            "Finish setting up your separate Church Together account.";
+          status.classList.add("hidden");
+          next.classList.add("hidden");
+          passwordForm.hidden = false;
+          password.focus();
+
+          passwordForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            formStatus.textContent = "";
+
+            const newPassword = password.value;
+            const strongEnough =
+              newPassword.length >= 12 &&
+              /[a-z]/.test(newPassword) &&
+              /[A-Z]/.test(newPassword) &&
+              /[0-9]/.test(newPassword);
+            if (!strongEnough) {
+              formStatus.textContent =
+                "Use at least 12 characters with uppercase, lowercase, and a number.";
+              return;
+            }
+            if (newPassword !== confirmPassword.value) {
+              formStatus.textContent = "The two passwords do not match.";
+              return;
+            }
+
+            savePassword.disabled = true;
+            savePassword.textContent = "Saving…";
+            try {
+              const response = await fetch(
+                "https://ugywfnycmklabxunuinl.supabase.co/auth/v1/user",
+                {
+                  method: "PUT",
+                  headers: {
+                    apikey: "sb_publishable_gTlOIDFJFZXA9N7dEoil5g_IdDRamgK",
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({ password: newPassword }),
+                },
+              );
+              if (!response.ok) {
+                const result = await response.json().catch(() => ({}));
+                throw new Error(
+                  result.msg ||
+                    result.message ||
+                    "This setup link has expired. Request a new password link.",
+                );
+              }
+
+              await fetch(
+                "https://ugywfnycmklabxunuinl.supabase.co/auth/v1/logout",
+                {
+                  method: "POST",
+                  headers: {
+                    apikey: "sb_publishable_gTlOIDFJFZXA9N7dEoil5g_IdDRamgK",
+                    Authorization: `Bearer ${accessToken}`,
+                  },
+                },
+              ).catch(() => undefined);
+
+              password.value = "";
+              confirmPassword.value = "";
+              passwordForm.hidden = true;
+              status.classList.remove("hidden", "error");
+              status.textContent = "Your password was saved securely.";
+              next.classList.remove("hidden");
+              next.textContent =
+                "Return to Church Together and sign in with this email and your new password.";
+              title.textContent = "Account ready";
+              message.textContent =
+                "Your separate Church Together account is ready to use.";
+            } catch (saveError) {
+              formStatus.textContent =
+                saveError instanceof Error
+                  ? saveError.message
+                  : "We could not save your password. Request a new password link and try again.";
+              savePassword.disabled = false;
+              savePassword.textContent = "Save password";
+            }
+          });
         } else if (!hasConfirmation) {
           title.textContent = "Church Together";
           message.textContent =
@@ -195,7 +385,6 @@
             "If you already confirmed, close this page and sign in to the app.";
         }
 
-        history.replaceState(null, "", window.location.pathname);
       })();
     </script>
   </body>
