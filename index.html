@@ -265,7 +265,7 @@
           hash.has("access_token") ||
           hash.has("refresh_token");
         const flowType = hash.get("type") || query.get("type");
-        const accessToken = hash.get("access_token");
+        let accessToken = hash.get("access_token");
         const needsPassword =
           Boolean(accessToken) &&
           (flowType === "invite" || flowType === "recovery");
@@ -292,9 +292,12 @@
           next.textContent =
             "For your protection, this page does not display technical account details.";
         } else if (needsPassword) {
-          title.textContent = "Create your password";
+          title.textContent =
+            flowType === "recovery" ? "Choose a new password" : "Create your password";
           message.textContent =
-            "Finish setting up your separate Church Together account.";
+            flowType === "recovery"
+              ? "Enter a new password for your Church Together account."
+              : "Finish setting up your Church Together account.";
           status.classList.add("hidden");
           next.classList.add("hidden");
           passwordForm.hidden = false;
@@ -336,11 +339,10 @@
                 },
               );
               if (!response.ok) {
-                const result = await response.json().catch(() => ({}));
                 throw new Error(
-                  result.msg ||
-                    result.message ||
-                    "This setup link has expired. Request a new password link.",
+                  flowType === "recovery"
+                    ? "This reset link is no longer valid. Return to Church Together and request a new one."
+                    : "This setup link is no longer valid. Request a new invitation email.",
                 );
               }
 
@@ -357,20 +359,24 @@
 
               password.value = "";
               confirmPassword.value = "";
+              accessToken = null;
               passwordForm.hidden = true;
               status.classList.remove("hidden", "error");
               status.textContent = "Your password was saved securely.";
               next.classList.remove("hidden");
               next.textContent =
                 "Return to Church Together and sign in with this email and your new password.";
-              title.textContent = "Account ready";
+              title.textContent =
+                flowType === "recovery" ? "Password updated" : "Account ready";
               message.textContent =
-                "Your separate Church Together account is ready to use.";
+                flowType === "recovery"
+                  ? "Your Church Together password has been changed."
+                  : "Your Church Together account is ready to use.";
             } catch (saveError) {
               formStatus.textContent =
                 saveError instanceof Error
                   ? saveError.message
-                  : "We could not save your password. Request a new password link and try again.";
+                  : "We could not save your password. Request a new link and try again.";
               savePassword.disabled = false;
               savePassword.textContent = "Save password";
             }
