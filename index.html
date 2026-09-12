@@ -9,7 +9,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://ugywfnycmklabxunuinl.supabase.co; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     />
-    <title>Church Together · Email Confirmation</title>
+    <title>Pumkhat · Email Confirmation</title>
     <style>
       :root {
         color-scheme: light;
@@ -202,24 +202,27 @@
   <body>
     <main>
       <div class="mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-          <circle cx="9" cy="7" r="4" />
-          <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-        </svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <g stroke="#0E3A5B" stroke-width="24" stroke-linecap="butt" stroke-linejoin="round">
+  <path d="M278 658V286C278 236 314 204 362 204H640C716 204 769 258 769 348C769 459 706 562 588 562" />
+  <path d="M508 293V741M428 373H592" />
+  <path d="M508 741C438 670 354 646 278 658C240 661 208 672 188 687L174 786C309 757 420 779 508 841C596 779 707 757 842 786L828 687C808 672 776 661 738 658C662 646 578 670 508 741Z" />
+  </g>
+</svg>
       </div>
-      <p class="product">CHURCH TOGETHER</p>
-      <h1 id="title">Email confirmed</h1>
+      <p class="product">PUMKHAT</p>
+      <h1 id="title">Open your Pumkhat email link</h1>
       <p class="message" id="message">
-        Your Church Together account is ready.
+        This page cannot confirm your email verification status.
       </p>
       <div class="status" id="status" role="status">
-        You can close this page and return to Church Together.
+        You can close this page and return to Pumkhat.
       </div>
       <p class="next" id="next">
-        Sign in with the email and password you created. If your church has not
-        added you yet, the app will ask for an invitation code.
+        Check your account status in Pumkhat. If verification is still needed,
+        request a new verification email from the app.
       </p>
+      <button id="verify-email" type="button" class="hidden" style="margin-top:24px">Verify my email</button>
       <form class="password-form" id="password-form" hidden>
         <label for="password">Create password</label>
         <input
@@ -246,7 +249,7 @@
         <div class="form-status" id="form-status" role="alert"></div>
       </form>
       <p class="privacy">
-        Passwords are sent directly to Church Together's secure account
+        Passwords are sent directly to Pumkhat's secure account
         service. This page never stores church information or payment details.
       </p>
     </main>
@@ -259,11 +262,19 @@
           query.get("error") ||
           hash.get("error_description") ||
           hash.get("error");
-        const hasConfirmation =
+        const hasLink =
           query.has("code") ||
           query.has("token") ||
           hash.has("access_token") ||
           hash.has("refresh_token");
+        const challengeKey = "pumkhat_verification_token";
+        const hasChallenge = hash.has(challengeKey) || query.has(challengeKey);
+        let challengeToken = hash.get(challengeKey) || "";
+        const mixedChallenge = ["type", "code", "token", "token_hash", "access_token", "refresh_token"]
+          .some((key) => hash.has(key) || query.has(key));
+        const validChallenge = !query.has(challengeKey)
+          && hash.getAll(challengeKey).length === 1 && !mixedChallenge
+          && /^[0-9a-f]{64}$/i.test(challengeToken);
         const flowType = hash.get("type") || query.get("type");
         let accessToken = hash.get("access_token");
         const needsPassword =
@@ -279,6 +290,58 @@
         const confirmPassword = document.getElementById("confirm-password");
         const savePassword = document.getElementById("save-password");
         const formStatus = document.getElementById("form-status");
+        const verifyButton = document.getElementById("verify-email");
+        // Generated from app/verification-request.ts; parity enforced by tests.
+        const requestVerification = (() => {
+          const exports = {};
+          "use strict";
+          Object.defineProperty(exports, "__esModule", { value: true });
+          exports.requestVerification = requestVerification;
+          // Called only by an explicit user action. No cookies, referrer, redirects, or
+          // URL token transport. Keep parity with the standalone static-page helper.
+          async function requestVerification(token) {
+              if (!/^[0-9a-f]{64}$/i.test(token))
+                  return "unavailable";
+              const controller = new AbortController();
+              let timer;
+              try {
+                  return await Promise.race([
+                      (async () => {
+                          const response = await fetch("https://ugywfnycmklabxunuinl.supabase.co/functions/v1/verify-email", {
+                              method: "POST",
+                              mode: "cors",
+                              credentials: "omit",
+                              cache: "no-store",
+                              redirect: "error",
+                              referrerPolicy: "no-referrer",
+                              signal: controller.signal,
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ token }),
+                          });
+                          const result = await response.json();
+                          if (response.status === 200 && result?.verified === true)
+                              return "verified";
+                          if (response.status === 400 && result?.verified === false)
+                              return "unavailable";
+                          return "uncertain";
+                      })(),
+                      new Promise((resolve) => {
+                          timer = setTimeout(() => {
+                              controller.abort();
+                              resolve("uncertain");
+                          }, 10_000);
+                      }),
+                  ]);
+              }
+              catch {
+                  return "uncertain";
+              }
+              finally {
+                  clearTimeout(timer);
+              }
+          }
+          return exports.requestVerification;
+        })();
 
         history.replaceState(null, "", window.location.pathname);
 
@@ -287,17 +350,58 @@
           message.textContent =
             "The confirmation link may be expired or already used.";
           status.textContent =
-            "Return to Church Together and request a new confirmation email.";
+            "Return to Pumkhat and request a new confirmation email.";
           status.classList.add("error");
           next.textContent =
             "For your protection, this page does not display technical account details.";
+        } else if (hasChallenge) {
+          if (!validChallenge) {
+            challengeToken = "";
+            title.textContent = "We could not confirm this link";
+            message.textContent = "This verification link is unavailable. Request a new link from Pumkhat.";
+          } else {
+            title.textContent = "Verify your email";
+            message.textContent = "Select Verify my email to confirm this address for your Pumkhat account.";
+            status.textContent = "Verification has not been completed.";
+            next.textContent = "Opening this page does not verify your email.";
+            verifyButton.classList.remove("hidden");
+            let attempting = false;
+            verifyButton.addEventListener("click", async () => {
+              if (attempting || !challengeToken) return;
+              attempting = true;
+              verifyButton.disabled = true;
+              verifyButton.textContent = "Verifying…";
+              const outcome = await requestVerification(challengeToken);
+              if (outcome === "verified") {
+                challengeToken = "";
+                verifyButton.classList.add("hidden");
+                title.textContent = "Email verified";
+                message.textContent = "Your Pumkhat email is verified.";
+                status.textContent = "Return to Pumkhat to refresh your account status.";
+                next.textContent = "You can close this page.";
+              } else if (outcome === "unavailable") {
+                challengeToken = "";
+                verifyButton.classList.add("hidden");
+                title.textContent = "We could not confirm this link";
+                message.textContent = "This link is expired, already used, or no longer matches your account email.";
+                status.classList.add("error");
+                status.textContent = "Request a new verification link from Pumkhat.";
+                next.textContent = "No verification success is confirmed by this page.";
+              } else {
+                status.textContent = "We could not confirm the result. Check your account status in Pumkhat before trying again.";
+                verifyButton.disabled = false;
+                verifyButton.textContent = "Verify my email";
+                attempting = false;
+              }
+            });
+          }
         } else if (needsPassword) {
           title.textContent =
             flowType === "recovery" ? "Choose a new password" : "Create your password";
           message.textContent =
             flowType === "recovery"
-              ? "Enter a new password for your Church Together account."
-              : "Finish setting up your Church Together account.";
+              ? "Enter a new password for your Pumkhat account."
+              : "Finish setting up your Pumkhat account.";
           status.classList.add("hidden");
           next.classList.add("hidden");
           passwordForm.hidden = false;
@@ -341,7 +445,7 @@
               if (!response.ok) {
                 throw new Error(
                   flowType === "recovery"
-                    ? "This reset link is no longer valid. Return to Church Together and request a new one."
+                    ? "This reset link is no longer valid. Return to Pumkhat and request a new one."
                     : "This setup link is no longer valid. Request a new invitation email.",
                 );
               }
@@ -365,13 +469,13 @@
               status.textContent = "Your password was saved securely.";
               next.classList.remove("hidden");
               next.textContent =
-                "Return to Church Together and sign in with this email and your new password.";
+                "Return to Pumkhat and sign in with this email and your new password.";
               title.textContent =
-                flowType === "recovery" ? "Password updated" : "Account ready";
+                "Password updated";
               message.textContent =
                 flowType === "recovery"
-                  ? "Your Church Together password has been changed."
-                  : "Your Church Together account is ready to use.";
+                  ? "Your Pumkhat password has been changed."
+                  : "Your Pumkhat password has been created. Check your account status in the app.";
             } catch (saveError) {
               formStatus.textContent =
                 saveError instanceof Error
@@ -381,18 +485,17 @@
               savePassword.textContent = "Save password";
             }
           });
-        } else if (!hasConfirmation) {
-          title.textContent = "Church Together";
+        } else if (hasLink) {
+          title.textContent = "Link received";
           message.textContent =
-            "Open the confirmation link in your Church Together email.";
+            "This page cannot confirm your email verification status.";
           status.textContent =
-            "This secure page will let you know when confirmation is complete.";
+            "Return to Pumkhat to check your account status.";
           next.textContent =
-            "If you already confirmed, close this page and sign in to the app.";
+            "If verification is still needed, request a new verification email from Pumkhat.";
         }
 
       })();
     </script>
   </body>
 </html>
-  
