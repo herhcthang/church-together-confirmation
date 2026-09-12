@@ -11,6 +11,28 @@
     />
     <title>Pumkhat · Email Confirmation</title>
     <style>
+/* Personal Envelope A; geometry shared with Lane M (220x150, opening y58).
+   Final state is the default: no motion support or Reduce Motion is immediate. */
+.personal-envelope { position:relative;width:220px;height:150px;margin:24px auto;isolation:isolate;overflow:hidden; }
+.personal-envelope > div { position:absolute; }
+.personal-envelope ~ h1 { overflow-wrap:anywhere; }
+.envelope-back { left:15px;top:58px;width:190px;height:92px;background:#EDE3CD;border-radius:8px; }
+.envelope-paper { left:36px;top:0;width:148px;height:92px;border:1px solid #DBDDD3;border-radius:8px;background:#FFFDF8;z-index:2;transform-origin:50% 100%; }
+.envelope-paper span { display:block;margin:25px auto;width:70px;height:3px;background:#DBDDD3;box-shadow:0 14px #DBDDD3; }
+.envelope-pouch { left:15px;top:58px;width:190px;height:92px;background:#E4E9DE;clip-path:polygon(0 0,50% 55%,100% 0,100% 100%,0 100%);border-radius:0 0 8px 8px;z-index:3; }
+.envelope-flap { left:15px;top:58px;width:190px;height:70px;background:#EDE3CD;clip-path:polygon(0 0,100% 0,50% 100%);transform-origin:50% 0;transform:rotateX(180deg);z-index:1; }
+.envelope-check { left:92px;top:83px;width:36px;height:36px;border-radius:50%;background:#586B50;color:#fff;line-height:36px;font:24px/36px Arial,sans-serif;z-index:5;opacity:0; }
+.is-verified .envelope-paper { transform:translateY(12px) scaleY(.5); }
+.is-verified .envelope-flap { transform:rotateX(0deg);z-index:4; }
+.is-verified .envelope-check { opacity:1; }
+@media(prefers-reduced-motion:no-preference) {
+ .is-verified .envelope-paper { animation:envelope-paper-in 1050ms cubic-bezier(.65,0,.35,1) both; }
+ .is-verified .envelope-flap { animation:envelope-close 1100ms 1050ms cubic-bezier(.65,0,.35,1) both; }
+ .is-verified .envelope-check { animation:envelope-check-in 250ms 2150ms ease-out both; }
+ @keyframes envelope-paper-in { from { transform:translateY(0) scaleY(1); } to { transform:translateY(12px) scaleY(.5); } }
+ @keyframes envelope-close { 0% {transform:rotateX(180deg);z-index:1;} 49.999% {z-index:1;} 50% {z-index:4;} 100% {transform:rotateX(0);z-index:4;} }
+ @keyframes envelope-check-in { from {opacity:0;} to {opacity:1;} }
+}
       :root {
         color-scheme: light;
         --ivory: #f7f2e7;
@@ -211,6 +233,10 @@
 </svg>
       </div>
       <p class="product">PUMKHAT</p>
+      <div id="personal-envelope" class="personal-envelope hidden" aria-hidden="true">
+        <div class="envelope-back"></div><div class="envelope-paper"><span></span></div>
+        <div class="envelope-pouch"></div><div class="envelope-flap"></div><div class="envelope-check">✓</div>
+      </div>
       <h1 id="title">Open your Pumkhat email link</h1>
       <p class="message" id="message">
         This page cannot confirm your email verification status.
@@ -291,6 +317,7 @@
         const savePassword = document.getElementById("save-password");
         const formStatus = document.getElementById("form-status");
         const verifyButton = document.getElementById("verify-email");
+        const envelopeArt = document.getElementById("personal-envelope");
         // Generated from app/verification-request.ts; parity enforced by tests.
         const requestVerification = (() => {
           const exports = {};
@@ -299,13 +326,14 @@
           exports.requestVerification = requestVerification;
           // Called only by an explicit user action. No cookies, referrer, redirects, or
           // URL token transport. Keep parity with the standalone static-page helper.
-          async function requestVerification(token) {
+          async function requestVerification(token, onVerifiedName) {
               if (!/^[0-9a-f]{64}$/i.test(token))
                   return "unavailable";
               const controller = new AbortController();
               let timer;
+              let displayName = null;
               try {
-                  return await Promise.race([
+                  const outcome = await Promise.race([
                       (async () => {
                           const response = await fetch("https://ugywfnycmklabxunuinl.supabase.co/functions/v1/verify-email", {
                               method: "POST",
@@ -319,8 +347,16 @@
                               body: JSON.stringify({ token }),
                           });
                           const result = await response.json();
-                          if (response.status === 200 && result?.verified === true)
+                          if (response.status === 200 && result?.verified === true) {
+                              const value = result.display_name;
+                              if (typeof value === "string" && value.length <= 400) {
+                                  const name = value.normalize("NFC").trim().replace(/\s+/gu, " ");
+                                  if (name && [...name].length <= 80 && !/[\p{Cc}\p{Cf}]/u.test(name)
+                                      && !/[@<>]|https?:|www\./i.test(name))
+                                      displayName = name;
+                              }
                               return "verified";
+                          }
                           if (response.status === 400 && result?.verified === false)
                               return "unavailable";
                           return "uncertain";
@@ -332,6 +368,11 @@
                           }, 10_000);
                       }),
                   ]);
+                  // Runs only if verified won the deadline race. Late responses cannot publish
+                  // a name or success after an uncertain result. Old consumers remain valid.
+                  if (outcome === "verified")
+                      onVerifiedName?.(displayName);
+                  return outcome;
               }
               catch {
                   return "uncertain";
@@ -365,17 +406,20 @@
             status.textContent = "Verification has not been completed.";
             next.textContent = "Opening this page does not verify your email.";
             verifyButton.classList.remove("hidden");
+            envelopeArt.classList.remove("hidden");
             let attempting = false;
             verifyButton.addEventListener("click", async () => {
               if (attempting || !challengeToken) return;
               attempting = true;
               verifyButton.disabled = true;
               verifyButton.textContent = "Verifying…";
-              const outcome = await requestVerification(challengeToken);
+              let verifiedName = null;
+              const outcome = await requestVerification(challengeToken, name => { verifiedName = name; });
               if (outcome === "verified") {
                 challengeToken = "";
                 verifyButton.classList.add("hidden");
-                title.textContent = "Email verified";
+                title.textContent = verifiedName ? `You’re all set, ${verifiedName}.` : "Your email is confirmed";
+                envelopeArt.classList.add("is-verified");
                 message.textContent = "Your Pumkhat email is verified.";
                 status.textContent = "Return to Pumkhat to refresh your account status.";
                 next.textContent = "You can close this page.";
