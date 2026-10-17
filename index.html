@@ -254,7 +254,7 @@
         <input
           autocomplete="new-password"
           id="password"
-          minlength="12"
+          minlength="6"
           name="password"
           required
           type="password"
@@ -263,13 +263,13 @@
         <input
           autocomplete="new-password"
           id="confirm-password"
-          minlength="12"
+          minlength="6"
           name="confirm-password"
           required
           type="password"
         />
         <p class="form-help">
-          Use at least 12 characters with uppercase, lowercase, and a number.
+          Use at least 6 characters for your password.
         </p>
         <button id="save-password" type="submit">Save password</button>
         <div class="form-status" id="form-status" role="alert"></div>
@@ -456,14 +456,10 @@
             formStatus.textContent = "";
 
             const newPassword = password.value;
-            const strongEnough =
-              newPassword.length >= 12 &&
-              /[a-z]/.test(newPassword) &&
-              /[A-Z]/.test(newPassword) &&
-              /[0-9]/.test(newPassword);
+            const strongEnough = newPassword.length >= 6;
             if (!strongEnough) {
               formStatus.textContent =
-                "Use at least 12 characters with uppercase, lowercase, and a number.";
+                "Use at least 6 characters for your password.";
               return;
             }
             if (newPassword !== confirmPassword.value) {
@@ -487,11 +483,26 @@
                 },
               );
               if (!response.ok) {
-                throw new Error(
-                  flowType === "recovery"
-                    ? "This reset link is no longer valid. Return to Pumkhat and request a new one."
-                    : "This setup link is no longer valid. Request a new invitation email.",
-                );
+                let body = null;
+                try { body = await response.json(); } catch {}
+                const code = body && (body.error_code || body.code);
+                if (code === "weak_password") {
+                  const reasons = (body && body.weak_password && body.weak_password.reasons) || [];
+                  throw new Error(reasons.length && !reasons.includes("pwned")
+                    ? "This password isn't strong enough. Please choose a longer or more varied one."
+                    : "This password was found in a data breach, so it isn't safe. Please choose a different one.");
+                }
+                if (code === "same_password") {
+                  throw new Error("Please choose a password you have not used before.");
+                }
+                if (response.status === 401 || response.status === 403) {
+                  throw new Error(
+                    flowType === "recovery"
+                      ? "This reset link is no longer valid. Return to Pumkhat and request a new one."
+                      : "This setup link is no longer valid. Request a new invitation email.",
+                  );
+                }
+                throw new Error("We could not save your password. Please try again.");
               }
 
               await fetch(
